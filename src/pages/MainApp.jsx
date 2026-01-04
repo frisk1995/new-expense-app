@@ -11,6 +11,7 @@ function MainApp() {
   const [projectName, setProjectName] = useState('')
   const [currentUserName, setCurrentUserName] = useState('')
   const [showMenu, setShowMenu] = useState(false)
+  const [showCopyToast, setShowCopyToast] = useState(false)
 
   useEffect(() => {
     // プロジェクト情報を取得
@@ -34,6 +35,17 @@ function MainApp() {
     navigate('/')
   }
 
+  const handleCopyProjectId = async () => {
+    try {
+      await navigator.clipboard.writeText(projectId)
+      setShowCopyToast(true)
+      setTimeout(() => setShowCopyToast(false), 2000)
+    } catch (error) {
+      console.error('Failed to copy:', error)
+      alert('コピーに失敗しました')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* ヘッダー */}
@@ -42,7 +54,20 @@ function MainApp() {
           <div className="flex justify-between items-center h-16">
             <div className="flex-1">
               <h1 className="text-xl font-semibold text-gray-900">{projectName}</h1>
-              <p className="text-sm text-gray-500">{currentUserName}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-sm text-gray-500">{currentUserName}</p>
+                <span className="text-gray-300">|</span>
+                <button
+                  onClick={handleCopyProjectId}
+                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  title="プロジェクトIDをコピー"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  IDをコピー
+                </button>
+              </div>
             </div>
             <div className="flex-none">
               <div className="dropdown dropdown-end">
@@ -110,6 +135,15 @@ function MainApp() {
           </div>
         </div>
       </div>
+
+      {/* コピー完了トースト */}
+      {showCopyToast && (
+        <div className="toast toast-top toast-center">
+          <div className="alert alert-success">
+            <span>プロジェクトIDをコピーしました</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

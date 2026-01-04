@@ -10,7 +10,7 @@ function ExpenseList({ projectId }) {
   const [editingExpense, setEditingExpense] = useState(null)
   const [formData, setFormData] = useState({
     payerId: '',
-    beneficiaryIds: [],
+    beneficiaryId: '',
     amount: '',
     memo: '',
     date: new Date().toISOString().split('T')[0]
@@ -53,7 +53,7 @@ function ExpenseList({ projectId }) {
     setEditingExpense(null)
     setFormData({
       payerId: '',
-      beneficiaryIds: [],
+      beneficiaryId: '',
       amount: '',
       memo: '',
       date: new Date().toISOString().split('T')[0]
@@ -65,7 +65,7 @@ function ExpenseList({ projectId }) {
     setEditingExpense(expense)
     setFormData({
       payerId: expense.payerId,
-      beneficiaryIds: expense.beneficiaries.map(b => b.userId),
+      beneficiaryId: expense.beneficiaries[0]?.userId || '',
       amount: expense.amount.toString(),
       memo: expense.memo || '',
       date: expense.date?.toDate ? expense.date.toDate().toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
@@ -74,7 +74,7 @@ function ExpenseList({ projectId }) {
   }
 
   const handleSubmit = async () => {
-    if (!formData.payerId || formData.beneficiaryIds.length === 0 || !formData.amount) {
+    if (!formData.payerId || !formData.beneficiaryId || !formData.amount) {
       alert('必須項目を入力してください')
       return
     }
@@ -87,13 +87,11 @@ function ExpenseList({ projectId }) {
 
     try {
       const payer = users.find(u => u.id === formData.payerId)
-      const beneficiaries = formData.beneficiaryIds.map(id => {
-        const user = users.find(u => u.id === id)
-        return {
-          userId: user.id,
-          userName: user.name
-        }
-      })
+      const beneficiary = users.find(u => u.id === formData.beneficiaryId)
+      const beneficiaries = [{
+        userId: beneficiary.id,
+        userName: beneficiary.name
+      }]
 
       const expenseData = {
         payerId: formData.payerId,
@@ -133,20 +131,6 @@ function ExpenseList({ projectId }) {
     } catch (error) {
       console.error('Error deleting expense:', error)
       alert('削除に失敗しました')
-    }
-  }
-
-  const toggleBeneficiary = (userId) => {
-    if (formData.beneficiaryIds.includes(userId)) {
-      setFormData({
-        ...formData,
-        beneficiaryIds: formData.beneficiaryIds.filter(id => id !== userId)
-      })
-    } else {
-      setFormData({
-        ...formData,
-        beneficiaryIds: [...formData.beneficiaryIds, userId]
-      })
     }
   }
 
@@ -229,10 +213,10 @@ function ExpenseList({ projectId }) {
             </h3>
             
             <div className="space-y-4">
-              {/* 支払者 */}
+              {/* 払った人 */}
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text font-medium">支払者</span>
+                  <span className="label-text font-medium">払った人</span>
                 </label>
                 <select
                   className="select select-bordered"
@@ -246,24 +230,21 @@ function ExpenseList({ projectId }) {
                 </select>
               </div>
 
-              {/* 受益者 */}
+              {/* 返す人 */}
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text font-medium">受益者（複数選択可）</span>
+                  <span className="label-text font-medium">返す人</span>
                 </label>
-                <div className="space-y-2">
+                <select
+                  className="select select-bordered"
+                  value={formData.beneficiaryId}
+                  onChange={(e) => setFormData({...formData, beneficiaryId: e.target.value})}
+                >
+                  <option value="">選択してください</option>
                   {users.map(user => (
-                    <label key={user.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="checkbox checkbox-primary"
-                        checked={formData.beneficiaryIds.includes(user.id)}
-                        onChange={() => toggleBeneficiary(user.id)}
-                      />
-                      <span>{user.name}</span>
-                    </label>
+                    <option key={user.id} value={user.id}>{user.name}</option>
                   ))}
-                </div>
+                </select>
               </div>
 
               {/* 金額 */}
