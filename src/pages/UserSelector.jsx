@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { collection, getDocs, getDoc, doc, addDoc, serverTimestamp } from 'firebase/firestore'
+import { db } from '../firebase/config'
 
 function UserSelector() {
   const navigate = useNavigate()
@@ -8,15 +10,38 @@ function UserSelector() {
   const [projectName, setProjectName] = useState('')
   const [showAddUserModal, setShowAddUserModal] = useState(false)
   const [newUserName, setNewUserName] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    // TODO: Firebaseからプロジェクト情報とユーザー一覧を取得
-    setProjectName('テストプロジェクト')
-    setUsers([
-      { id: 'user1', name: '田中' },
-      { id: 'user2', name: '佐藤' },
-    ])
-  }, [projectId])
+    const fetchData = async () => {
+      try {
+        // プロジェクト情報を取得
+        const projectDoc = await getDoc(doc(db, 'projects', projectId))
+        if (!projectDoc.exists()) {
+          alert('プロジェクトが見つかりません')
+          navigate('/')
+          return
+        }
+        setProjectName(projectDoc.data().name)
+
+        // ユーザー一覧を取得
+        const usersSnapshot = await getDocs(collection(db, 'projects', projectId, 'users'))
+        const usersList = usersSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        setUsers(usersList)
+      } catch (error) {
+        console.error('Error fetching data:', error)
+        alert('データの取得に失敗しました')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [projectId, navigate])
 
   const handleSelectUser = (user) => {
     // ローカルストレージに保存
@@ -44,15 +69,30 @@ function UserSelector() {
   }
 
   const handleAddUser = async () => {
-    // TODO: Firebaseに新しいユーザーを追加
-    const newUser = {
-      id: 'user_' + Date.now(),
-      name: newUserName
+    if (!newUserName.trim()) return
+    
+    setSubmitting(true)
+    try {
+      // Firebaseに新しいユーザーを追加
+      const userRef = await addDoc(collection(db, 'projects', projectId, 'users'), {
+        name: newUserName,
+        createdAt: serverTimestamp()
+      })
+      
+      const newUser = {
+        id: userRef.id,
+        name: newUserName
+      }
+      setUsers([...users, newUser])
+      setShowAddUserModal(false)
+      setNewUserName('')
+      handleSelectUser(newUser)
+    } catch (error) {
+      console.error('Error adding user:', error)
+      alert('ユーザーの追加に失敗しました')
+    } finally {
+      setSubmitting(false)
     }
-    setUsers([...users, newUser])
-    setShowAddUserModal(false)
-    setNewUserName('')
-    handleSelectUser(newUser)
   }
 
   return (
@@ -76,6 +116,16 @@ function UserSelector() {
 
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">ユーザーを選択</h2>
+          {loading ? (
+            <div className="text-center py-8">
+              <span className="loading loading-spinner loading-lg"></span>
+            </div>
+          ) : users.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p>まだユーザーが登録されていません</p>
+              <p className="text-sm mt-1">下のボタンから新規登録してください</p>
+            </div>
+          ) : (
           <div className="space-y-3">
             {users.map((user) => (
               <div
@@ -94,6 +144,7 @@ function UserSelector() {
               </div>
             ))}
           </div>
+          )}
         </div>
 
         <button
@@ -127,15 +178,16 @@ function UserSelector() {
                 <button
                   onClick={() => setShowAddUserModal(false)}
                   className="btn btn-outline flex-1 h-12"
+                  disabled={submitting}
                 >
                   キャンセル
                 </button>
                 <button
                   onClick={handleAddUser}
                   className="btn btn-primary flex-1 h-12"
-                  disabled={!newUserName.trim()}
+                  disabled={!newUserName.trim() || submitting}
                 >
-                  追加
+                  {submitting ? '追加中...' : '追加'}
                 </button>
               </div>
             </div>

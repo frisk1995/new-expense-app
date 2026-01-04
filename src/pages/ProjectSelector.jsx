@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { db } from '../firebase/config'
 
 function ProjectSelector() {
   const navigate = useNavigate()
@@ -8,6 +10,7 @@ function ProjectSelector() {
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectId, setProjectId] = useState('')
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     // ローカルストレージから参加済みプロジェクトを読み込み
@@ -16,12 +19,27 @@ function ProjectSelector() {
   }, [])
 
   const handleCreateProject = async () => {
-    // TODO: Firebaseでプロジェクトを作成
-    console.log('Creating project:', projectName)
-    setShowCreateModal(false)
-    // 仮のプロジェクトID
-    const newProjectId = 'project_' + Date.now()
-    navigate(`/select-user/${newProjectId}`)
+    if (!projectName.trim()) return
+    
+    setLoading(true)
+    try {
+      // Firebaseでプロジェクトを作成
+      const projectRef = await addDoc(collection(db, 'projects'), {
+        name: projectName,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      })
+      
+      console.log('Project created with ID:', projectRef.id)
+      setShowCreateModal(false)
+      setProjectName('')
+      navigate(`/select-user/${projectRef.id}`)
+    } catch (error) {
+      console.error('Error creating project:', error)
+      alert('プロジェクトの作成に失敗しました')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleJoinProject = () => {
@@ -105,15 +123,16 @@ function ProjectSelector() {
                 <button
                   onClick={() => setShowCreateModal(false)}
                   className="btn btn-outline flex-1 h-12"
+                  disabled={loading}
                 >
                   キャンセル
                 </button>
                 <button
                   onClick={handleCreateProject}
                   className="btn btn-primary flex-1 h-12"
-                  disabled={!projectName.trim()}
+                  disabled={!projectName.trim() || loading}
                 >
-                  作成
+                  {loading ? '作成中...' : '作成'}
                 </button>
               </div>
             </div>

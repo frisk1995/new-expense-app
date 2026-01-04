@@ -1,13 +1,112 @@
-function BalanceView({ projectId }) {
-  // TODO: Firestoreからデータを計算
-  const balances = [
-    { userName: '田中', balance: 3000 },
-    { userName: '佐藤', balance: -3000 },
-  ]
+import { useState, useEffect } from 'react'
+import { collection, getDocs, query, orderBy } from 'firebase/firestore'
+import { db } from '../firebase/config'
 
-  const settlements = [
-    { from: '佐藤', to: '田中', amount: 3000 }
-  ]
+function BalanceView({ projectId }) {
+  const [balances, setBalances] = useState([])
+  const [settlements, setSettlements] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchAndCalculate()
+  }, [projectId])
+
+  const fetchAndCalculate = async () => {
+    try {
+      // ユーザー一覧を取得
+      const usersSnapshot = await getDocs(collection(db, 'projects', projectId, 'users'))
+      const users = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+
+      // 経費記録を取得
+      const expensesQuery = query(
+        collection(db, 'projects', projectId, 'expenses'),
+        orderBy('date', 'desc')
+      )
+      const expensesSnapshot = await getDocs(expensesQuery)
+      const expenses = expensesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+
+      // 残高を計算
+      const balanceMap = {}
+      users.forEach(user => {
+        balanceMap[user.id] = {
+          userId: user.id,
+          userName: user.name,
+          balance: 0
+        }
+      })
+
+      expenses.forEach(expense => {
+        // 支払者の残高を増やす
+        if (balanceMap[expense.payerId]) {
+          balanceMap[expense.payerId].balance += expense.amount
+        }
+
+        // 受益者の残高を減らす
+        const beneficiaryCount = expense.beneficiaries.length
+        const amountPerPerson = expense.amount / beneficiaryCount
+
+        expense.beneficiaries.forEach(beneficiary => {
+          if (balanceMap[beneficiary.userId]) {
+            balanceMap[beneficiary.userId].balance -= amountPerPerson
+          }
+        })
+      })
+
+      const balancesList = Object.values(balanceMap).sort((a, b) => b.balance - a.balance)
+      setBalances(balancesList)
+
+      // 清算方法を計算
+      const settlementsList = calculateSettlements(balancesList)
+      setSettlements(settlementsList)
+    } catch (error) {
+      console.error('Error fetching and calculating:', error)
+      alert('データの取得に失敗しました')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const calculateSettlements = (balances) => {
+    const creditors = balances.filter(b => b.balance > 0.01).map(b => ({...b}))
+    const debtors = balances.filter(b => b.balance < -0.01).map(b => ({...b}))
+    
+    const transactions = []
+    let i = 0, j = 0
+    
+    while (i < creditors.length && j < debtors.length) {
+      const amount = Math.min(creditors[i].balance, -debtors[j].balance)
+      
+      if (amount > 0.01) {
+        transactions.push({
+          from: debtors[j].userName,
+          to: creditors[i].userName,
+          amount: Math.round(amount)
+        })
+      }
+      
+      creditors[i].balance -= amount
+      debtors[j].balance += amount
+      
+      if (creditors[i].balance < 0.01) i++
+      if (debtors[j].balance > -0.01) j++
+    }
+    
+    return transactions
+  }
+
+  if (loading) {
+    return (
+      <div className="text-center py-16">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -18,8 +117,8 @@ function BalanceView({ projectId }) {
             <div key={index} className="bg-white border border-gray-200 rounded-lg p-5">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-lg text-gray-800">{balance.userName}</span>
-                <span className={`text-2xl font-bold ${balance.balance > 0 ? 'text-green-600' : balance.balance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                  {balance.balance > 0 ? '+' : ''}¥{balance.balance.toLocaleString()}
+                <span className={`text-2xl font-bold ${balance.balance > 0.01 ? 'text-green-600' : balance.balance < -0.01 ? 'text-red-600' : 'text-gray-600'}`}>
+                  {balance.balance > 0.01 ? '+' : ''}¥{Math.round(balance.balance).toLocaleString()}
                 </span>
               </div>
             </div>
