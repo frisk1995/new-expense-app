@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // プロジェクトコレクション
+    match /projects/{projectId} {
+      // プロジェクトは誰でも読み書き可能（プロジェクトIDを知っている人のみ）
+      allow read, write: if true;
+      
+      // ユーザーサブコレクション
+      match /users/{userId} {
+        allow read, write: if true;
+      }
+      
+      // 経費サブコレクション
+      match /expenses/{expenseId} {
+        allow read, write: if true;
+      }
+    }
+  }
+}
