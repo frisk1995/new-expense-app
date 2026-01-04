@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { collection, getDocs, query, orderBy } from 'firebase/firestore'
+import { collection, getDocs, addDoc, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
 function BalanceView({ projectId }) {
   const [balances, setBalances] = useState([])
   const [settlements, setSettlements] = useState([])
   const [loading, setLoading] = useState(true)
+  const [processing, setProcessing] = useState(false)
 
   useEffect(() => {
     fetchAndCalculate()
@@ -31,7 +32,9 @@ function BalanceView({ projectId }) {
         ...doc.data()
       }))
 
-      // 残高を計算
+      // 残高を計算（未精算のみ）
+      const activeExpenses = expenses.filter(exp => !exp.settled)
+
       const balanceMap = {}
       users.forEach(user => {
         balanceMap[user.id] = {
@@ -41,7 +44,7 @@ function BalanceView({ projectId }) {
         }
       })
 
-      expenses.forEach(expense => {
+      activeExpenses.forEach(expense => {
         // 支払者の残高を増やす
         if (balanceMap[expense.payerId]) {
           balanceMap[expense.payerId].balance += expense.amount
@@ -100,6 +103,59 @@ function BalanceView({ projectId }) {
     return transactions
   }
 
+  const handleBulkSettlement = async () => {
+    if (settlements.length === 0) return
+    
+    if (!window.confirm(`${settlements.length}件の清算記録を追加します。よろしいですか？`)) {
+      return
+    }
+
+    setProcessing(true)
+    try {
+      // ユーザー情報を取得
+      const usersSnapshot = await getDocs(collection(db, 'projects', projectId, 'users'))
+      const usersMap = {}
+      usersSnapshot.docs.forEach(doc => {
+        usersMap[doc.data().name] = {
+          id: doc.id,
+          name: doc.data().name
+        }
+      })
+
+      // 各清算取引を経費記録として追加
+      const currentDate = new Date()
+      for (const settlement of settlements) {
+        const payer = usersMap[settlement.from]
+        const beneficiary = usersMap[settlement.to]
+        
+        if (payer && beneficiary) {
+          await addDoc(collection(db, 'projects', projectId, 'expenses'), {
+            payerId: payer.id,
+            payerName: payer.name,
+            beneficiaries: [{
+              userId: beneficiary.id,
+              userName: beneficiary.name
+            }],
+            amount: settlement.amount,
+            memo: '一括清算',
+            date: Timestamp.fromDate(currentDate),
+            settled: true,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          })
+        }
+      }
+
+      alert('清算が完了しました')
+      fetchAndCalculate()
+    } catch (error) {
+      console.error('Error processing settlement:', error)
+      alert('清算処理に失敗しました')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="text-center py-16">
@@ -127,7 +183,25 @@ function BalanceView({ projectId }) {
       </div>
 
       <div>
-        <h2 className="text-2xl font-bold text-gray-800 mb-4">清算方法</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-800">清算方法</h2>
+          {settlements.length > 0 && (
+            <button
+              onClick={handleBulkSettlement}
+              disabled={processing}
+              className="btn btn-primary"
+            >
+              {processing ? (
+                <>
+                  <span className="loading loading-spinner loading-sm"></span>
+                  処理中...
+                </>
+              ) : (
+                '一括清算'
+              )}
+            </button>
+          )}
+        </div>
         {settlements.length === 0 ? (
           <div className="text-center py-16">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-green-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">

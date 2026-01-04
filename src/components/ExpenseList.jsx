@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
-function ExpenseList({ projectId }) {
+function ExpenseList({ projectId, showSettled = false }) {
   const [expenses, setExpenses] = useState([])
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingExpense, setEditingExpense] = useState(null)
+  const [statusUpdating, setStatusUpdating] = useState('')
   const [formData, setFormData] = useState({
     payerId: '',
     beneficiaryId: '',
@@ -100,6 +101,7 @@ function ExpenseList({ projectId }) {
         amount,
         memo: formData.memo,
         date: Timestamp.fromDate(new Date(formData.date)),
+        settled: editingExpense?.settled ?? false,
         updatedAt: serverTimestamp()
       }
 
@@ -110,6 +112,7 @@ function ExpenseList({ projectId }) {
         // 新規作成
         await addDoc(collection(db, 'projects', projectId, 'expenses'), {
           ...expenseData,
+          settled: false,
           createdAt: serverTimestamp()
         })
       }
@@ -140,6 +143,26 @@ function ExpenseList({ projectId }) {
     return date.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
   }
 
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter(exp => (showSettled ? exp.settled : !exp.settled))
+  }, [expenses, showSettled])
+
+  const toggleSettlementStatus = async (expense, settledValue) => {
+    setStatusUpdating(expense.id)
+    try {
+      await updateDoc(doc(db, 'projects', projectId, 'expenses', expense.id), {
+        settled: settledValue,
+        updatedAt: serverTimestamp()
+      })
+      setExpenses(prev => prev.map(e => e.id === expense.id ? { ...e, settled: settledValue } : e))
+    } catch (error) {
+      console.error('Error updating settlement status:', error)
+      alert('状態の更新に失敗しました')
+    } finally {
+      setStatusUpdating('')
+    }
+  }
+
   if (loading) {
     return (
       <div className="text-center py-16">
@@ -151,20 +174,20 @@ function ExpenseList({ projectId }) {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">建て替え記録</h2>
+        <h2 className="text-2xl font-bold text-gray-800">{showSettled ? '精算済みの記録' : '未精算の記録'}</h2>
       </div>
 
-      {expenses.length === 0 ? (
+      {filteredExpenses.length === 0 ? (
         <div className="text-center py-16">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
           </svg>
-          <p className="text-gray-600">まだ記録がありません</p>
-          <p className="text-gray-400 text-sm mt-1">右下の＋ボタンから追加してください</p>
+          <p className="text-gray-600">{showSettled ? '精算済みの記録はありません' : '未精算の記録はありません'}</p>
+          {!showSettled && <p className="text-gray-400 text-sm mt-1">右下の＋ボタンから追加してください</p>}
         </div>
       ) : (
         <div className="space-y-3">
-          {expenses.map((expense) => (
+          {filteredExpenses.map((expense) => (
             <div 
               key={expense.id} 
               className="bg-white border border-gray-200 rounded-lg p-5"
@@ -181,12 +204,31 @@ function ExpenseList({ projectId }) {
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <p className="text-2xl font-bold text-primary">¥{expense.amount.toLocaleString()}</p>
-                  <button
-                    onClick={() => handleDelete(expense.id)}
-                    className="btn btn-ghost btn-sm text-red-500"
-                  >
-                    削除
-                  </button>
+                  <div className="flex gap-2">
+                    {!showSettled ? (
+                      <button
+                        onClick={() => toggleSettlementStatus(expense, true)}
+                        className="btn btn-outline btn-xs"
+                        disabled={statusUpdating === expense.id}
+                      >
+                        {statusUpdating === expense.id ? '処理中...' : '精算済みにする'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => toggleSettlementStatus(expense, false)}
+                        className="btn btn-ghost btn-xs"
+                        disabled={statusUpdating === expense.id}
+                      >
+                        {statusUpdating === expense.id ? '処理中...' : '未精算に戻す'}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(expense.id)}
+                      className="btn btn-ghost btn-xs text-red-500"
+                    >
+                      削除
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -194,15 +236,17 @@ function ExpenseList({ projectId }) {
         </div>
       )}
 
-      {/* フローティングアクションボタン */}
-      <button 
-        onClick={handleAddExpense}
-        className="fixed bottom-24 right-6 btn btn-primary btn-circle w-14 h-14 shadow-lg"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-        </svg>
-      </button>
+      {/* フローティングアクションボタン（未精算のみ表示） */}
+      {!showSettled && (
+        <button 
+          onClick={handleAddExpense}
+          className="fixed bottom-24 right-6 btn btn-primary btn-circle w-14 h-14 shadow-lg"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
+      )}
 
       {/* 経費追加・編集モーダル */}
       {showModal && (
